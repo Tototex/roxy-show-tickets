@@ -69,7 +69,6 @@ class Tickets {
     );
   }
 
-
   public static function enqueue_admin_assets(string $hook): void {
     $page = isset($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : '';
     $is_door_mode = ($page === 'roxy-st-door-mode');
@@ -259,7 +258,6 @@ class Tickets {
     return count($posts);
   }
 
-
   public static function get_door_mode_showings(): array {
     $posts = get_posts([
       'post_type' => CPT::POST_TYPE,
@@ -286,7 +284,6 @@ class Tickets {
     }
     return $out;
   }
-
 
   public static function get_default_door_mode_showing_id(): int {
     $posts = get_posts([
@@ -370,6 +367,106 @@ class Tickets {
     return array_map('intval', $q->posts ?: []);
   }
 
+  public static function get_checked_in_ticket_ids_for_order_item(int $order_id, int $item_id): array {
+    $ticket_ids = self::tickets_for_order_item($order_id, $item_id);
+    if (!$ticket_ids) {
+      return [];
+    }
+
+    $out = [];
+    foreach ($ticket_ids as $ticket_id) {
+      if ((int) get_post_meta($ticket_id, self::META_CHECKED_IN, true) === 1) {
+        $out[] = (int) $ticket_id;
+      }
+    }
+    return $out;
+  }
+
+  public static function check_in_ticket(int $ticket_id, int $user_id = 0): bool {
+    if ($ticket_id <= 0 || get_post_type($ticket_id) !== self::POST_TYPE) {
+      return false;
+    }
+    if (!self::can_check_in($ticket_id)) {
+      return false;
+    }
+
+    if ($user_id <= 0) {
+      $user_id = get_current_user_id();
+    }
+
+    update_post_meta($ticket_id, self::META_CHECKED_IN, '1');
+    update_post_meta($ticket_id, self::META_CHECKED_IN_AT, current_time('mysql'));
+    update_post_meta($ticket_id, self::META_CHECKED_IN_BY, (int) $user_id);
+    update_post_meta($ticket_id, self::META_STATE, 'checked_in');
+    return true;
+  }
+
+  public static function undo_check_in_ticket(int $ticket_id): bool {
+    if ($ticket_id <= 0 || get_post_type($ticket_id) !== self::POST_TYPE) {
+      return false;
+    }
+
+    delete_post_meta($ticket_id, self::META_CHECKED_IN);
+    delete_post_meta($ticket_id, self::META_CHECKED_IN_AT);
+    delete_post_meta($ticket_id, self::META_CHECKED_IN_BY);
+
+    $order_id = (int) get_post_meta($ticket_id, self::META_ORDER_ID, true);
+    $order = wc_get_order($order_id);
+    update_post_meta($ticket_id, self::META_STATE, self::state_for_order_status($order ? (string) $order->get_status() : 'processing'));
+    return true;
+  }
+
+  public static function set_order_item_check_in_qty(int $order_id, int $item_id, int $target_qty, int $user_id = 0): array {
+    $target_qty = max(0, $target_qty);
+    $ticket_ids = self::tickets_for_order_item($order_id, $item_id);
+    if (!$ticket_ids) {
+      return ['changed' => 0, 'checked_in' => 0, 'undone' => 0, 'current' => 0];
+    }
+
+    $checked_ids = [];
+    $available_ids = [];
+
+    foreach ($ticket_ids as $ticket_id) {
+      if ((int) get_post_meta($ticket_id, self::META_CHECKED_IN, true) === 1) {
+        $checked_ids[] = (int) $ticket_id;
+      } elseif (self::can_check_in((int) $ticket_id)) {
+        $available_ids[] = (int) $ticket_id;
+      }
+    }
+
+    $current_qty = count($checked_ids);
+    $changed = 0;
+    $checked_count = 0;
+    $undone_count = 0;
+
+    if ($current_qty < $target_qty) {
+      $needed = min($target_qty - $current_qty, count($available_ids));
+      for ($i = 0; $i < $needed; $i++) {
+        if (self::check_in_ticket($available_ids[$i], $user_id)) {
+          $changed++;
+          $checked_count++;
+        }
+      }
+    } elseif ($current_qty > $target_qty) {
+      $to_undo = $current_qty - $target_qty;
+      $checked_ids = array_reverse($checked_ids);
+      for ($i = 0; $i < $to_undo; $i++) {
+        if (!isset($checked_ids[$i])) break;
+        if (self::undo_check_in_ticket($checked_ids[$i])) {
+          $changed++;
+          $undone_count++;
+        }
+      }
+    }
+
+    return [
+      'changed' => $changed,
+      'checked_in' => $checked_count,
+      'undone' => $undone_count,
+      'current' => max(0, min($target_qty, count($ticket_ids))),
+    ];
+  }
+
   public static function render_order_tickets(int $order_id): void {
     if ($order_id <= 0) return;
     $order = wc_get_order($order_id);
@@ -419,7 +516,6 @@ class Tickets {
     }
     echo '</div></section>';
   }
-
 
   public static function render_door_mode_page(): void {
     if (!current_user_can('edit_posts')) {
@@ -509,7 +605,6 @@ class Tickets {
     echo '</div>';
     echo '</div>';
   }
-
 
   private static function render_door_mode_result(\WP_Post $ticket): void {
     self::render_door_mode_result_markup(self::door_ticket_payload($ticket));
@@ -793,19 +888,9 @@ class Tickets {
     }
 
     if ($check_in) {
-      if (self::can_check_in($ticket_id)) {
-        update_post_meta($ticket_id, self::META_CHECKED_IN, '1');
-        update_post_meta($ticket_id, self::META_CHECKED_IN_AT, current_time('mysql'));
-        update_post_meta($ticket_id, self::META_CHECKED_IN_BY, get_current_user_id());
-        update_post_meta($ticket_id, self::META_STATE, 'checked_in');
-      }
+      self::check_in_ticket($ticket_id, get_current_user_id());
     } else {
-      delete_post_meta($ticket_id, self::META_CHECKED_IN);
-      delete_post_meta($ticket_id, self::META_CHECKED_IN_AT);
-      delete_post_meta($ticket_id, self::META_CHECKED_IN_BY);
-      $order_id = (int) get_post_meta($ticket_id, self::META_ORDER_ID, true);
-      $order = wc_get_order($order_id);
-      update_post_meta($ticket_id, self::META_STATE, self::state_for_order_status($order ? (string) $order->get_status() : 'processing'));
+      self::undo_check_in_ticket($ticket_id);
     }
 
     $redirect_page = isset($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : 'roxy-st-check-in';
@@ -825,7 +910,6 @@ class Tickets {
     wp_safe_redirect($redirect);
     exit;
   }
-
 
   private static function extract_member_subscription_id(string $value): int {
     $value = trim($value);
@@ -917,20 +1001,11 @@ class Tickets {
     }
 
     if ($undo) {
-      delete_post_meta($ticket_id, self::META_CHECKED_IN);
-      delete_post_meta($ticket_id, self::META_CHECKED_IN_AT);
-      delete_post_meta($ticket_id, self::META_CHECKED_IN_BY);
-      $order_id = (int) get_post_meta($ticket_id, self::META_ORDER_ID, true);
-      $order = wc_get_order($order_id);
-      update_post_meta($ticket_id, self::META_STATE, self::state_for_order_status($order ? (string) $order->get_status() : 'processing'));
+      self::undo_check_in_ticket($ticket_id);
     } else {
-      if (!self::can_check_in($ticket_id)) {
+      if (!self::check_in_ticket($ticket_id, get_current_user_id())) {
         wp_send_json_error(['message' => 'Ticket is not eligible for check-in.'], 400);
       }
-      update_post_meta($ticket_id, self::META_CHECKED_IN, '1');
-      update_post_meta($ticket_id, self::META_CHECKED_IN_AT, current_time('mysql'));
-      update_post_meta($ticket_id, self::META_CHECKED_IN_BY, get_current_user_id());
-      update_post_meta($ticket_id, self::META_STATE, 'checked_in');
     }
 
     $ticket = get_post($ticket_id);
