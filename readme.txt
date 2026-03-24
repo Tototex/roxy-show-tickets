@@ -4,7 +4,7 @@ Tags: tickets, events, woocommerce, theater, qr, checkin
 Requires at least: 5.8
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 0.2.10.30
+Stable tag: 0.2.10.32
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -37,6 +37,9 @@ This plugin is part of the Newport Roxy Theater management system.
 4. Create showings
 
 == Changelog ==
+
+= 0.2.10.32 =
+* Test GitHub Desktop workflow
 
 = 0.2.10.30 =
 * Add WordPress readme for GitHub updater compatibility
