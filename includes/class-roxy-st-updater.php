@@ -9,18 +9,17 @@ class Updater {
 
   public static function init(array $config): void {
     self::$config = wp_parse_args($config, [
-      'plugin_file'   => '',
-      'version'       => '',
-      'github_repo'   => '',
-      'release_asset' => '',
-      'slug'          => '',
+      'plugin_file' => '',
+      'version'     => '',
+      'github_repo' => '',
+      'slug'        => '',
+      'name'        => 'Plugin',
     ]);
 
     if (
       self::$config['plugin_file'] === '' ||
       self::$config['version'] === '' ||
       self::$config['github_repo'] === '' ||
-      self::$config['release_asset'] === '' ||
       self::$config['slug'] === ''
     ) {
       return;
@@ -82,7 +81,7 @@ class Updater {
     }
 
     return (object) [
-      'name'          => 'Roxy Show Tickets (WooCommerce)',
+      'name'          => (string) self::$config['name'],
       'slug'          => (string) self::$config['slug'],
       'version'       => (string) ($release['version'] ?? self::$config['version']),
       'author'        => '<a href="https://github.com/' . esc_attr((string) self::$config['github_repo']) . '">Roxy AI Team</a>',
@@ -130,7 +129,7 @@ class Updater {
       return self::$release;
     }
 
-    $url = 'https://api.github.com/repos/' . rawurlencode((string) self::$config['github_repo']) . '/releases/latest';
+    $url = 'https://api.github.com/repos/' . (string) self::$config['github_repo'] . '/releases/latest';
     $response = wp_remote_get($url, [
       'timeout' => 15,
       'headers' => [
@@ -153,19 +152,7 @@ class Updater {
       return null;
     }
 
-    $asset_name = (string) self::$config['release_asset'];
-    $download_url = '';
-
-    if (!empty($data['assets']) && is_array($data['assets'])) {
-      foreach ($data['assets'] as $asset) {
-        if (!is_array($asset)) continue;
-        if ((string) ($asset['name'] ?? '') === $asset_name) {
-          $download_url = (string) ($asset['browser_download_url'] ?? '');
-          break;
-        }
-      }
-    }
-
+    $download_url = self::find_release_zip_asset($data);
     if ($download_url === '') {
       return null;
     }
@@ -184,6 +171,34 @@ class Updater {
 
     set_transient($cache_key, self::$release, 6 * HOUR_IN_SECONDS);
     return self::$release;
+  }
+
+  private static function find_release_zip_asset(array $release): string {
+    $slug = (string) self::$config['slug'];
+    $prefix = $slug . '-';
+
+    if (empty($release['assets']) || !is_array($release['assets'])) {
+      return '';
+    }
+
+    foreach ($release['assets'] as $asset) {
+      if (!is_array($asset)) continue;
+
+      $name = (string) ($asset['name'] ?? '');
+      $url  = (string) ($asset['browser_download_url'] ?? '');
+
+      if ($url === '') continue;
+
+      if ($name === $slug . '.zip') {
+        return $url;
+      }
+
+      if (substr($name, -4) === '.zip' && strpos($name, $prefix) === 0) {
+        return $url;
+      }
+    }
+
+    return '';
   }
 
   private static function format_release_notes(string $body): string {
