@@ -27,8 +27,8 @@ jobs:
 
       - name: Build folder
         run: |
-          mkdir build
-          mkdir build/$PLUGIN
+          rm -rf build
+          mkdir -p build/$PLUGIN
           rsync -av ./ build/$PLUGIN \
             --exclude '.git/' \
             --exclude '.github/' \
@@ -46,8 +46,8 @@ jobs:
           name: ${{ env.PLUGIN }}-${{ env.VERSION }}
           path: build/${{ env.PLUGIN }}-${{ env.VERSION }}.zip
 
-      - name: Release
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Attach ZIP to Release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: build/${{ env.PLUGIN }}-${{ env.VERSION }}.zip
