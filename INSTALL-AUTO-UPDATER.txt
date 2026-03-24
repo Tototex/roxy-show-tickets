@@ -1,0 +1,16 @@
+Roxy Show Tickets GitHub Auto-Update Patch
+
+Overwrite these files in your live plugin:
+- roxy-show-tickets.php
+- includes/class-roxy-st-updater.php
+
+This patch assumes:
+- GitHub Releases publish an asset named: roxy-show-tickets.zip
+- The plugin version in the file matches the release tag version
+- Example release tag: v0.2.10.29
+
+After replacing files:
+1. Deactivate Roxy Show Tickets
+2. Overwrite files
+3. Reactivate plugin
+4. Future GitHub Releases should appear in WordPress updates
