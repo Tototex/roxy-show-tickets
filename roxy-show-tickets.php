@@ -3,7 +3,8 @@
  * Plugin Name: Roxy Show Tickets (WooCommerce)
  * Description: Show-specific ticketing with per-showing hidden products (avoids cart collisions), capacity controls, and subscriber tickets per show (based on active subscriptions).
  * Version: 0.2.10.32
- * Author: Roxy AI Team
+ * Author: Newport Roxy (AI Team)
+ * Update URI: https://github.com/Tototex/roxy-show-tickets
  */
 
 if (!defined('ABSPATH')) exit;
