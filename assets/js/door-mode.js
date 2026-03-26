@@ -252,13 +252,20 @@
   async function scanFrame(){
     if (!scanning || busy || !video.videoWidth) return;
     try {
-      canvas.width = video.videoWidth; canvas.height = video.videoHeight; ctx.drawImage(video,0,0,canvas.width,canvas.height);
       let rawValue = null;
       if (detector) {
+        canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const codes = await detector.detect(canvas);
         if (codes && codes.length && codes[0].rawValue) rawValue = codes[0].rawValue;
       } else if (jsQRLib) {
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        // Downsample to max 640px wide — jsQR is pure JS and bogs down at full camera resolution
+        const scale = Math.min(1, 640 / video.videoWidth);
+        const sw = Math.round(video.videoWidth * scale);
+        const sh = Math.round(video.videoHeight * scale);
+        canvas.width = sw; canvas.height = sh;
+        ctx.drawImage(video, 0, 0, sw, sh);
+        const imageData = ctx.getImageData(0, 0, sw, sh);
         const code = jsQRLib(imageData.data, imageData.width, imageData.height);
         if (code && code.data) rawValue = code.data;
       }
@@ -312,6 +319,11 @@
   }
   async function startCamera(){
     initAudio();
+    // HTTPS is required for camera access on iOS and modern browsers
+    if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      setNote('Camera requires a secure HTTPS connection. Contact your site administrator to enable HTTPS.');
+      return;
+    }
     if (!('mediaDevices' in navigator) || !navigator.mediaDevices.getUserMedia) { setNote('Camera access is not supported on this browser. Use photo upload or manual lookup.'); return; }
     if ('BarcodeDetector' in window) {
       detector = new BarcodeDetector({formats:['qr_code']});
@@ -321,10 +333,22 @@
       if (!loaded) { setNote('QR scanning is not available on this browser. Use photo upload or manual lookup.'); return; }
     }
     try {
-      stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}, audio:false});
-      video.srcObject = stream; await video.play(); updateTorchVisibility(); idle(); resumeScanning();
+      // Try rear-facing camera first; fall back to any camera if constraints are rejected
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}, audio:false});
+      } catch(e) {
+        stream = await navigator.mediaDevices.getUserMedia({video:true, audio:false});
+      }
+      video.srcObject = stream;
+      // Wait for metadata before playing — iOS Safari blacks out if play() is called too early
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Camera timed out. Try stopping and restarting.')), 8000);
+        const go = () => { clearTimeout(timeout); video.play().then(resolve).catch(reject); };
+        if (video.readyState >= 1) { go(); } else { video.onloadedmetadata = go; }
+      });
+      updateTorchVisibility(); idle(); resumeScanning();
       startNfcIfAvailable();
-    } catch(e) { setNote('Camera permission was denied or unavailable. Use photo upload or manual lookup.'); }
+    } catch(e) { setNote(e.message || 'Camera permission was denied or unavailable. Use photo upload or manual lookup.'); }
   }
   startBtn.addEventListener('click', startCamera);
   if (stopBtn) stopBtn.addEventListener('click', stopCamera);
