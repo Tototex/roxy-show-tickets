@@ -567,7 +567,9 @@ class Tickets {
     echo '</div>';
     echo '<div class="roxy-door-attendance-card" id="roxy-door-attendance"><div class="roxy-door-attendance-empty">Select an event lock to show live attendance here.</div></div>';
     echo '<div class="roxy-door-fallbacks">';
-    echo '<button type="button" class="button" id="roxy-door-nfc" hidden>Tap NFC</button>';
+    echo '<button type="button" class="button" id="roxy-door-nfc" hidden aria-pressed="false">Tap NFC</button>';
+    echo '<label class="button roxy-door-file-label" for="roxy-door-file">📷 Scan Photo</label>';
+    echo '<input type="file" id="roxy-door-file" accept="image/*" class="roxy-door-file-input" aria-label="Scan ticket from photo">';
     echo '</div>';
     echo '</section>';
 

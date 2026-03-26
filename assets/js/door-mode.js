@@ -6,6 +6,7 @@
   const torchBtn = document.getElementById('roxy-door-torch');
   const autoResume = document.getElementById('roxy-door-auto-resume');
   const nfcBtn = document.getElementById('roxy-door-nfc');
+  const fileInput = document.getElementById('roxy-door-file');
   const note = document.getElementById('roxy-door-camera-note');
   const overlay = document.getElementById('roxy-door-overlay-text');
   const resultEl = document.getElementById('roxy-door-result');
@@ -17,6 +18,7 @@
   if (!video || !startBtn || !resultEl || !modal) return;
 
   let stream = null, detector = null, timer = null, busy = false, scanning = false, torchOn = false, audioCtx = null;
+  let jsQRLib = null, nfcReader = null;
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d', {willReadFrequently:true});
 
@@ -246,14 +248,32 @@
   }
   function pauseScanning(){ scanning = false; if (timer) { clearInterval(timer); timer = null; } }
   function stopCamera(){ pauseScanning(); if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } video.srcObject = null; torchOn = false; updateTorchVisibility(); setOverlay('Camera stopped'); setNote('Camera stopped.'); }
-  function resumeScanning(){ if (!stream || !detector) return; if (scanning) return; scanning = true; setOverlay('Present ticket QR code'); setNote('Aim camera at the QR code.'); timer = setInterval(scanFrame, 650); }
+  function resumeScanning(){ if (!stream || (!detector && !jsQRLib)) return; if (scanning) return; scanning = true; setOverlay('Present ticket QR code'); setNote('Aim camera at the QR code.'); timer = setInterval(scanFrame, 650); }
   async function scanFrame(){
-    if (!scanning || busy || !video.videoWidth || !detector) return;
+    if (!scanning || busy || !video.videoWidth) return;
     try {
       canvas.width = video.videoWidth; canvas.height = video.videoHeight; ctx.drawImage(video,0,0,canvas.width,canvas.height);
-      const codes = await detector.detect(canvas);
-      if (codes && codes.length && codes[0].rawValue) validateToken(codes[0].rawValue.trim());
+      let rawValue = null;
+      if (detector) {
+        const codes = await detector.detect(canvas);
+        if (codes && codes.length && codes[0].rawValue) rawValue = codes[0].rawValue;
+      } else if (jsQRLib) {
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQRLib(imageData.data, imageData.width, imageData.height);
+        if (code && code.data) rawValue = code.data;
+      }
+      if (rawValue) validateToken(rawValue.trim());
     } catch(e){}
+  }
+  async function loadJsQR(){
+    if (typeof jsQR !== 'undefined') { jsQRLib = jsQR; return true; }
+    return new Promise((resolve) => {
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js';
+      script.onload = () => { jsQRLib = window.jsQR || null; resolve(!!jsQRLib); };
+      script.onerror = () => resolve(false);
+      document.head.appendChild(script);
+    });
   }
   async function toggleTorch(){
     const track = currentTrack();
@@ -270,14 +290,40 @@
       if (torchBtn) { torchBtn.setAttribute('aria-pressed', 'false'); torchBtn.classList.remove('is-on'); }
     }
   }
+  async function startNfcIfAvailable(){
+    if (!('NDEFReader' in window)) { if (nfcBtn) nfcBtn.hidden = true; return; }
+    if (nfcReader) return; // already running
+    try {
+      nfcReader = new NDEFReader();
+      await nfcReader.scan();
+      if (nfcBtn) { nfcBtn.hidden = false; nfcBtn.textContent = '✓ NFC Active'; nfcBtn.setAttribute('aria-pressed', 'true'); nfcBtn.classList.add('is-on'); }
+      nfcReader.onreading = (event) => {
+        const records = (event.message && event.message.records) ? Array.from(event.message.records) : [];
+        for (const record of records) {
+          const value = decodeNfcRecord(record);
+          if (value) { validateToken(value.trim()); break; }
+        }
+      };
+      nfcReader.onerror = () => { nfcReader = null; if (nfcBtn) { nfcBtn.hidden = true; } };
+    } catch(e) {
+      nfcReader = null;
+      if (nfcBtn) nfcBtn.hidden = true;
+    }
+  }
   async function startCamera(){
     initAudio();
     if (!('mediaDevices' in navigator) || !navigator.mediaDevices.getUserMedia) { setNote('Camera access is not supported on this browser. Use photo upload or manual lookup.'); return; }
-    if (!('BarcodeDetector' in window)) { setNote('Live camera scanning is limited on this browser. Use photo upload or manual lookup, or try Chrome/Edge on Android.'); }
+    if ('BarcodeDetector' in window) {
+      detector = new BarcodeDetector({formats:['qr_code']});
+    } else {
+      setNote('Loading QR scanner…');
+      const loaded = await loadJsQR();
+      if (!loaded) { setNote('QR scanning is not available on this browser. Use photo upload or manual lookup.'); return; }
+    }
     try {
-      if (!detector && 'BarcodeDetector' in window) detector = new BarcodeDetector({formats:['qr_code']});
       stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}, audio:false});
       video.srcObject = stream; await video.play(); updateTorchVisibility(); idle(); resumeScanning();
+      startNfcIfAvailable();
     } catch(e) { setNote('Camera permission was denied or unavailable. Use photo upload or manual lookup.'); }
   }
   startBtn.addEventListener('click', startCamera);
@@ -286,18 +332,32 @@
   if (fileInput) fileInput.addEventListener('change', async function(){
     const file = this.files && this.files[0]; if (!file) return;
     initAudio();
-    if (!('BarcodeDetector' in window)) { setNote('Photo scanning is not supported on this browser. Use manual lookup or Roxy Check-In.'); return; }
+    if (!detector && !jsQRLib) {
+      setNote('Loading QR scanner…');
+      const loaded = await loadJsQR();
+      if (!loaded) { setNote('Photo scanning is not supported on this browser. Use manual lookup or Roxy Check-In.'); this.value = ''; return; }
+    }
     try {
-      if (!detector) detector = new BarcodeDetector({formats:['qr_code']});
-      const img = await createImageBitmap(file); const codes = await detector.detect(img);
-      if (codes && codes.length && codes[0].rawValue) validateToken(codes[0].rawValue.trim()); else { playSound('invalid'); setNote('No QR code found in that photo.'); }
+      if (detector) {
+        const img = await createImageBitmap(file);
+        const codes = await detector.detect(img);
+        if (codes && codes.length && codes[0].rawValue) validateToken(codes[0].rawValue.trim()); else { playSound('invalid'); setNote('No QR code found in that photo.'); }
+      } else if (jsQRLib) {
+        const img = await createImageBitmap(file);
+        const offscreen = document.createElement('canvas');
+        offscreen.width = img.width; offscreen.height = img.height;
+        const offCtx = offscreen.getContext('2d');
+        offCtx.drawImage(img, 0, 0);
+        const imageData = offCtx.getImageData(0, 0, img.width, img.height);
+        const code = jsQRLib(imageData.data, imageData.width, imageData.height);
+        if (code && code.data) validateToken(code.data.trim()); else { playSound('invalid'); setNote('No QR code found in that photo.'); }
+      }
     } catch(e) { setNote('Could not read that photo.'); }
     this.value='';
   });
   if (showingLock) {
     showingLock.addEventListener('change', () => {
       refreshAttendance();
-  setupNfc();
       setNote(currentLockShowingId() ? 'Door Mode locked to ' + currentLockShowingLabel() + '.' : (cfg.noEventSelectedText || 'Showing all events.'));
     });
   }
@@ -317,30 +377,6 @@
       }
     } catch(e) {}
     return '';
-  }
-  function setupNfc(){
-    if (!nfcBtn) return;
-    if (!('NDEFReader' in window)) { nfcBtn.hidden = true; return; }
-    nfcBtn.hidden = false;
-    nfcBtn.addEventListener('click', async () => {
-      initAudio();
-      try {
-        const reader = new NDEFReader();
-        await reader.scan();
-        setNote('Listening for NFC membership card…');
-        setOverlay('Tap membership card');
-        reader.onreading = (event) => {
-          const records = (event.message && event.message.records) ? Array.from(event.message.records) : [];
-          for (const record of records) {
-            const value = decodeNfcRecord(record);
-            if (value) { validateToken(value.trim()); break; }
-          }
-        };
-        reader.onerror = () => setNote('NFC read failed. Try again or use QR/photo/manual lookup.');
-      } catch (e) {
-        setNote(cfg.nfcUnsupportedText || 'NFC scanning is not supported on this device or browser. Use QR or manual lookup.');
-      }
-    });
   }
   const manualToken = resultEl.dataset.manualToken;
   refreshAttendance();

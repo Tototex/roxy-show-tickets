@@ -74,3 +74,6 @@ body.roxy-door-modal-open{overflow:hidden}
 @media (max-width:900px){.roxy-door-controls-row{grid-template-columns:1fr}.roxy-door-attendance-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
 .roxy-door-member-photo-wrap{text-align:center;margin:8px 0 14px}.roxy-door-member-photo{width:110px;height:110px;border-radius:16px;object-fit:cover;border:1px solid rgba(255,255,255,.15)}
+.roxy-door-file-input{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.roxy-door-file-label{display:inline-flex;align-items:center;justify-content:center;min-height:46px;cursor:pointer}
+#roxy-door-nfc.is-on{background:#0ea5e9;border-color:#0ea5e9;color:#fff}
