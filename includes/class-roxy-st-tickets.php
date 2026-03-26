@@ -838,6 +838,16 @@ class Tickets {
     // Fire play() IMMEDIATELY — iOS autoplay window closes ~1 second after user gesture
     // Do NOT await anything between getUserMedia and play()
     const playPromise = video.play();
+    // Attach rejection handler SYNCHRONOUSLY — before any await — so it fires right away on failure.
+    // Do NOT stop the stream on rejection; retry on canplay/loadedmetadata instead.
+    // If no frames ever appear the 8 s timeout below is the only kill switch.
+    if (playPromise && typeof playPromise.catch === 'function') {
+      playPromise.catch(() => {
+        const retryPlay = () => video.play().catch(() => {});
+        video.addEventListener('canplay',        retryPlay, {once: true});
+        video.addEventListener('loadedmetadata', retryPlay, {once: true});
+      });
+    }
     // Set up QR detector — jsQR is pre-loaded by WordPress so loadJsQR() resolves instantly (no CDN wait)
     if ('BarcodeDetector' in window) {
       detector = new BarcodeDetector({formats: ['qr_code']});
@@ -859,9 +869,6 @@ class Tickets {
         const done = () => { clearTimeout(timeout); clearInterval(poll); resolve(); };
         poll = setInterval(() => { if (video.videoWidth > 0 && video.readyState >= 2) done(); }, 200);
         video.addEventListener('playing', done, {once: true});
-        if (playPromise && typeof playPromise.catch === 'function') {
-          playPromise.catch((e) => { clearTimeout(timeout); clearInterval(poll); reject(e); });
-        }
       });
     } catch(e) {
       stream.getTracks().forEach(t => t.stop()); stream = null;
