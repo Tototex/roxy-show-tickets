@@ -793,7 +793,7 @@ class Tickets {
         canvas.width = sw; canvas.height = sh;
         ctx.drawImage(video, 0, 0, sw, sh);
         const imageData = ctx.getImageData(0, 0, sw, sh);
-        const code = jsQRLib(imageData.data, imageData.width, imageData.height);
+        const code = jsQRLib(imageData.data, imageData.width, imageData.height, {inversionAttempts: 'attemptBoth'});
         if (code && code.data) rawValue = code.data;
       }
       if (rawValue && rawValue.trim()) {
@@ -838,11 +838,12 @@ class Tickets {
       }
     }
     video.srcObject = stream;
+    video.muted = true; // Set programmatically — iOS ignores the HTML attribute in some contexts
     try {
       await new Promise((resolve, reject) => {
         const timeout = setTimeout(() => reject(new Error('Camera timed out.')), 8000);
-        const go = () => { clearTimeout(timeout); video.play().then(resolve).catch(reject); };
-        if (video.readyState >= 1) { go(); } else { video.onloadedmetadata = go; }
+        video.addEventListener('playing', () => { clearTimeout(timeout); resolve(); }, {once: true});
+        video.play().catch((e) => { clearTimeout(timeout); reject(e); });
       });
     } catch(e) {
       stream.getTracks().forEach(t => t.stop()); stream = null;

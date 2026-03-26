@@ -248,9 +248,12 @@
   }
   function pauseScanning(){ scanning = false; if (timer) { clearInterval(timer); timer = null; } }
   function stopCamera(){ pauseScanning(); if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } video.srcObject = null; torchOn = false; updateTorchVisibility(); setOverlay('Camera stopped'); setNote('Camera stopped.'); }
-  function resumeScanning(){ if (!stream || (!detector && !jsQRLib)) return; if (scanning) return; scanning = true; setOverlay('Present ticket QR code'); setNote('Aim camera at the QR code.'); timer = setInterval(scanFrame, 650); }
+  let scanCount = 0;
+  function resumeScanning(){ if (!stream || (!detector && !jsQRLib)) return; if (scanning) return; scanning = true; scanCount = 0; setOverlay('Present ticket QR code'); setNote('Aim camera at the QR code.'); timer = setInterval(scanFrame, 650); }
   async function scanFrame(){
     if (!scanning || busy || !video.videoWidth) return;
+    // Pulse the note every ~3 seconds on jsQR path so staff can confirm scanner is running
+    if (jsQRLib && !detector) { scanCount++; if (scanCount % 5 === 0) setNote('Scanning… (' + scanCount + ')'); }
     try {
       let rawValue = null;
       if (detector) {
@@ -266,7 +269,7 @@
         canvas.width = sw; canvas.height = sh;
         ctx.drawImage(video, 0, 0, sw, sh);
         const imageData = ctx.getImageData(0, 0, sw, sh);
-        const code = jsQRLib(imageData.data, imageData.width, imageData.height);
+        const code = jsQRLib(imageData.data, imageData.width, imageData.height, {inversionAttempts: 'attemptBoth'});
         if (code && code.data) rawValue = code.data;
       }
       if (rawValue) validateToken(rawValue.trim());
@@ -352,12 +355,13 @@
       }
     }
     video.srcObject = stream;
-    // Wait for metadata before playing — iOS Safari blacks out if play() is called too early
+    video.muted = true; // Set programmatically — iOS ignores the HTML attribute in some contexts
+    // Wait for 'playing' (first real frame rendered), not 'loadedmetadata' (metadata only, no pixels yet)
     try {
       await new Promise((resolve, reject) => {
         const timeout = setTimeout(() => reject(new Error('Camera timed out. Try stopping and restarting.')), 8000);
-        const go = () => { clearTimeout(timeout); video.play().then(resolve).catch(reject); };
-        if (video.readyState >= 1) { go(); } else { video.onloadedmetadata = go; }
+        video.addEventListener('playing', () => { clearTimeout(timeout); resolve(); }, {once: true});
+        video.play().catch((e) => { clearTimeout(timeout); reject(e); });
       });
     } catch(e) {
       stream.getTracks().forEach(t => t.stop()); stream = null;
