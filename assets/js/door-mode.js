@@ -345,7 +345,10 @@
     // Attach stream to video IMMEDIATELY — iOS releases orphaned streams within ~2 seconds
     video.srcObject = stream;
     video.muted = true; // Set programmatically — iOS ignores the HTML attribute in some contexts
-    // Load QR scanner while video is already attached and warming up
+    // Fire play() IMMEDIATELY — iOS autoplay window closes ~1 second after user gesture
+    // Do NOT await anything between getUserMedia and play()
+    const playPromise = video.play();
+    // Set up QR detector — jsQR is pre-loaded by WordPress so loadJsQR() resolves instantly (no CDN wait)
     if ('BarcodeDetector' in window) {
       detector = new BarcodeDetector({formats:['qr_code']});
     } else {
@@ -358,12 +361,17 @@
         return;
       }
     }
-    // Wait for 'playing' (first real frame rendered), not 'loadedmetadata' (metadata only, no pixels yet)
+    // Wait for first real frame — 'playing' event with videoWidth polling as fallback
     try {
       await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('Camera timed out. Try stopping and restarting.')), 8000);
-        video.addEventListener('playing', () => { clearTimeout(timeout); resolve(); }, {once: true});
-        video.play().catch((e) => { clearTimeout(timeout); reject(e); });
+        let poll;
+        const timeout = setTimeout(() => { clearInterval(poll); reject(new Error('Camera timed out. Try stopping and restarting.')); }, 8000);
+        const done = () => { clearTimeout(timeout); clearInterval(poll); resolve(); };
+        poll = setInterval(() => { if (video.videoWidth > 0 && video.readyState >= 2) done(); }, 200);
+        video.addEventListener('playing', done, {once: true});
+        if (playPromise && typeof playPromise.catch === 'function') {
+          playPromise.catch((e) => { clearTimeout(timeout); clearInterval(poll); reject(e); });
+        }
       });
     } catch(e) {
       stream.getTracks().forEach(t => t.stop()); stream = null;

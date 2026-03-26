@@ -73,13 +73,20 @@ class Tickets {
     $page = isset($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : '';
     $is_door_mode = ($page === 'roxy-st-door-mode');
     $is_door_hook = ($hook === CPT::POST_TYPE . '_page_roxy-st-door-mode');
+    $is_checkin   = ($page === 'roxy-st-check-in');
+    $is_checkin_hook = ($hook === CPT::POST_TYPE . '_page_roxy-st-check-in');
+
+    // Pre-load jsQR on both scanner pages so it is ready before any user gesture fires
+    if ($is_door_mode || $is_door_hook || $is_checkin || $is_checkin_hook) {
+      wp_enqueue_script('jsqr', 'https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js', [], '1.4.0', true);
+    }
 
     if (!$is_door_mode && !$is_door_hook) {
       return;
     }
 
     wp_enqueue_style('roxy-st-door-mode', ROXY_ST_URL . 'assets/css/door-mode.css', [], ROXY_ST_VER);
-    wp_enqueue_script('roxy-st-door-mode', ROXY_ST_URL . 'assets/js/door-mode.js', [], ROXY_ST_VER, true);
+    wp_enqueue_script('roxy-st-door-mode', ROXY_ST_URL . 'assets/js/door-mode.js', ['jsqr'], ROXY_ST_VER, true);
     wp_localize_script('roxy-st-door-mode', 'RoxyDoorMode', [
       'ajaxUrl' => admin_url('admin-ajax.php'),
       'nonce' => wp_create_nonce('roxy_st_door_mode'),
@@ -828,7 +835,10 @@ class Tickets {
     // Attach stream to video IMMEDIATELY — iOS releases orphaned streams within ~2 seconds
     video.srcObject = stream;
     video.muted = true; // Set programmatically — iOS ignores the HTML attribute in some contexts
-    // Load QR scanner while video is already attached and warming up
+    // Fire play() IMMEDIATELY — iOS autoplay window closes ~1 second after user gesture
+    // Do NOT await anything between getUserMedia and play()
+    const playPromise = video.play();
+    // Set up QR detector — jsQR is pre-loaded by WordPress so loadJsQR() resolves instantly (no CDN wait)
     if ('BarcodeDetector' in window) {
       detector = new BarcodeDetector({formats: ['qr_code']});
     } else {
@@ -841,11 +851,17 @@ class Tickets {
         return;
       }
     }
+    // Wait for first real frame — 'playing' event with videoWidth polling as fallback
     try {
       await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('Camera timed out.')), 8000);
-        video.addEventListener('playing', () => { clearTimeout(timeout); resolve(); }, {once: true});
-        video.play().catch((e) => { clearTimeout(timeout); reject(e); });
+        let poll;
+        const timeout = setTimeout(() => { clearInterval(poll); reject(new Error('Camera timed out.')); }, 8000);
+        const done = () => { clearTimeout(timeout); clearInterval(poll); resolve(); };
+        poll = setInterval(() => { if (video.videoWidth > 0 && video.readyState >= 2) done(); }, 200);
+        video.addEventListener('playing', done, {once: true});
+        if (playPromise && typeof playPromise.catch === 'function') {
+          playPromise.catch((e) => { clearTimeout(timeout); clearInterval(poll); reject(e); });
+        }
       });
     } catch(e) {
       stream.getTracks().forEach(t => t.stop()); stream = null;
