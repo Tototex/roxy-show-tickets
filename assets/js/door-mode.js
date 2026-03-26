@@ -342,7 +342,10 @@
       setNote(e.message || 'Camera permission was denied or unavailable. Use photo upload or manual lookup.');
       return;
     }
-    // Load QR scanner after stream is acquired — safe to await here
+    // Attach stream to video IMMEDIATELY — iOS releases orphaned streams within ~2 seconds
+    video.srcObject = stream;
+    video.muted = true; // Set programmatically — iOS ignores the HTML attribute in some contexts
+    // Load QR scanner while video is already attached and warming up
     if ('BarcodeDetector' in window) {
       detector = new BarcodeDetector({formats:['qr_code']});
     } else {
@@ -350,12 +353,11 @@
       const loaded = await loadJsQR();
       if (!loaded) {
         stream.getTracks().forEach(t => t.stop()); stream = null;
+        video.srcObject = null;
         setNote('QR scanning is not available on this browser. Use photo upload or manual lookup.');
         return;
       }
     }
-    video.srcObject = stream;
-    video.muted = true; // Set programmatically — iOS ignores the HTML attribute in some contexts
     // Wait for 'playing' (first real frame rendered), not 'loadedmetadata' (metadata only, no pixels yet)
     try {
       await new Promise((resolve, reject) => {
@@ -365,6 +367,7 @@
       });
     } catch(e) {
       stream.getTracks().forEach(t => t.stop()); stream = null;
+      video.srcObject = null;
       setNote(e.message || 'Camera failed to start. Try again.');
       return;
     }

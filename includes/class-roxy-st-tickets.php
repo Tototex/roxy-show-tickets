@@ -825,7 +825,10 @@ class Tickets {
       statusEl.textContent = 'Camera permission denied. Use manual search.';
       return;
     }
-    // Load QR scanner after stream is acquired — safe to await here
+    // Attach stream to video IMMEDIATELY — iOS releases orphaned streams within ~2 seconds
+    video.srcObject = stream;
+    video.muted = true; // Set programmatically — iOS ignores the HTML attribute in some contexts
+    // Load QR scanner while video is already attached and warming up
     if ('BarcodeDetector' in window) {
       detector = new BarcodeDetector({formats: ['qr_code']});
     } else {
@@ -833,12 +836,11 @@ class Tickets {
       const loaded = await loadJsQR();
       if (!loaded) {
         stream.getTracks().forEach(t => t.stop()); stream = null;
+        video.srcObject = null;
         statusEl.textContent = 'QR scanning is not available on this browser. Use manual search.';
         return;
       }
     }
-    video.srcObject = stream;
-    video.muted = true; // Set programmatically — iOS ignores the HTML attribute in some contexts
     try {
       await new Promise((resolve, reject) => {
         const timeout = setTimeout(() => reject(new Error('Camera timed out.')), 8000);
