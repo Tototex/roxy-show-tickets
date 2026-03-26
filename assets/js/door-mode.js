@@ -319,36 +319,53 @@
   }
   async function startCamera(){
     initAudio();
-    // HTTPS is required for camera access on iOS and modern browsers
     if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
       setNote('Camera requires a secure HTTPS connection. Contact your site administrator to enable HTTPS.');
       return;
     }
-    if (!('mediaDevices' in navigator) || !navigator.mediaDevices.getUserMedia) { setNote('Camera access is not supported on this browser. Use photo upload or manual lookup.'); return; }
-    if ('BarcodeDetector' in window) {
-      detector = new BarcodeDetector({formats:['qr_code']});
-    } else {
-      setNote('Loading QR scanner…');
-      const loaded = await loadJsQR();
-      if (!loaded) { setNote('QR scanning is not available on this browser. Use photo upload or manual lookup.'); return; }
+    if (!('mediaDevices' in navigator) || !navigator.mediaDevices.getUserMedia) {
+      setNote('Camera access is not supported on this browser. Use photo upload or manual lookup.');
+      return;
     }
+    // Request camera FIRST — any await before getUserMedia silently breaks iOS Safari's user gesture chain
+    setNote('Requesting camera access…');
     try {
-      // Try rear-facing camera first; fall back to any camera if constraints are rejected
       try {
         stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}, audio:false});
       } catch(e) {
         stream = await navigator.mediaDevices.getUserMedia({video:true, audio:false});
       }
-      video.srcObject = stream;
-      // Wait for metadata before playing — iOS Safari blacks out if play() is called too early
+    } catch(e) {
+      setNote(e.message || 'Camera permission was denied or unavailable. Use photo upload or manual lookup.');
+      return;
+    }
+    // Load QR scanner after stream is acquired — safe to await here
+    if ('BarcodeDetector' in window) {
+      detector = new BarcodeDetector({formats:['qr_code']});
+    } else {
+      setNote('Loading QR scanner…');
+      const loaded = await loadJsQR();
+      if (!loaded) {
+        stream.getTracks().forEach(t => t.stop()); stream = null;
+        setNote('QR scanning is not available on this browser. Use photo upload or manual lookup.');
+        return;
+      }
+    }
+    video.srcObject = stream;
+    // Wait for metadata before playing — iOS Safari blacks out if play() is called too early
+    try {
       await new Promise((resolve, reject) => {
         const timeout = setTimeout(() => reject(new Error('Camera timed out. Try stopping and restarting.')), 8000);
         const go = () => { clearTimeout(timeout); video.play().then(resolve).catch(reject); };
         if (video.readyState >= 1) { go(); } else { video.onloadedmetadata = go; }
       });
-      updateTorchVisibility(); idle(); resumeScanning();
-      startNfcIfAvailable();
-    } catch(e) { setNote(e.message || 'Camera permission was denied or unavailable. Use photo upload or manual lookup.'); }
+    } catch(e) {
+      stream.getTracks().forEach(t => t.stop()); stream = null;
+      setNote(e.message || 'Camera failed to start. Try again.');
+      return;
+    }
+    updateTorchVisibility(); idle(); resumeScanning();
+    startNfcIfAvailable();
   }
   startBtn.addEventListener('click', startCamera);
   if (stopBtn) stopBtn.addEventListener('click', stopCamera);

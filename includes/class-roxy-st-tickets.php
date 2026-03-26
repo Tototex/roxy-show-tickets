@@ -757,65 +757,102 @@ class Tickets {
   const startBtn = document.getElementById('roxy-st-start-scan');
   const statusEl = document.getElementById('roxy-st-scan-status');
   const video = document.getElementById('roxy-st-scan-video');
-  let stream = null;
-  let detector = null;
-  let timer = null;
+  let stream = null, detector = null, jsQRLib = null, timer = null;
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d', {willReadFrequently: true});
 
   function stopScan() {
     if (timer) { clearInterval(timer); timer = null; }
-    if (stream) {
-      stream.getTracks().forEach(t => t.stop());
-      stream = null;
-    }
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
     video.style.display = 'none';
     startBtn.textContent = 'Start Camera Scan';
   }
 
+  function loadJsQR() {
+    if (typeof jsQR !== 'undefined') { jsQRLib = jsQR; return Promise.resolve(true); }
+    return new Promise((resolve) => {
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js';
+      script.onload = () => { jsQRLib = window.jsQR || null; resolve(!!jsQRLib); };
+      script.onerror = () => resolve(false);
+      document.head.appendChild(script);
+    });
+  }
+
   async function tick() {
-    if (!detector || !video || video.readyState < 2) return;
+    if (!video || video.readyState < 2 || !video.videoWidth) return;
     try {
-      const codes = await detector.detect(video);
-      if (codes && codes.length) {
-        const raw = codes[0].rawValue || '';
-        if (raw) {
-          stopScan();
-          statusEl.textContent = 'Ticket detected. Loading result…';
-          const url = new URL(window.location.href);
-          url.searchParams.delete('s');
-          url.searchParams.set('ticket_token', raw.trim());
-          window.location.href = url.toString();
-        }
+      let rawValue = null;
+      if (detector) {
+        const codes = await detector.detect(video);
+        if (codes && codes.length) rawValue = codes[0].rawValue || '';
+      } else if (jsQRLib) {
+        const scale = Math.min(1, 640 / video.videoWidth);
+        const sw = Math.round(video.videoWidth * scale);
+        const sh = Math.round(video.videoHeight * scale);
+        canvas.width = sw; canvas.height = sh;
+        ctx.drawImage(video, 0, 0, sw, sh);
+        const imageData = ctx.getImageData(0, 0, sw, sh);
+        const code = jsQRLib(imageData.data, imageData.width, imageData.height);
+        if (code && code.data) rawValue = code.data;
       }
-    } catch (e) {}
+      if (rawValue && rawValue.trim()) {
+        stopScan();
+        statusEl.textContent = 'Ticket detected. Loading result…';
+        const url = new URL(window.location.href);
+        url.searchParams.delete('s');
+        url.searchParams.set('ticket_token', rawValue.trim());
+        window.location.href = url.toString();
+      }
+    } catch(e) {}
   }
 
   startBtn?.addEventListener('click', async function(){
-    if (stream) {
-      stopScan();
-      statusEl.textContent = 'Camera stopped.';
-      return;
-    }
+    if (stream) { stopScan(); statusEl.textContent = 'Camera stopped.'; return; }
     if (!('mediaDevices' in navigator) || !navigator.mediaDevices.getUserMedia) {
       statusEl.textContent = 'Camera scanning is not supported on this device. Use manual search.';
       return;
     }
-    if (!('BarcodeDetector' in window)) {
-      statusEl.textContent = 'QR scanning is not supported in this browser. Use manual search.';
+    // Request camera FIRST — any await before getUserMedia silently breaks iOS Safari's user gesture chain
+    statusEl.textContent = 'Requesting camera access…';
+    try {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({video: {facingMode: {ideal: 'environment'}}, audio: false});
+      } catch(e) {
+        stream = await navigator.mediaDevices.getUserMedia({video: true, audio: false});
+      }
+    } catch(e) {
+      statusEl.textContent = 'Camera permission denied. Use manual search.';
       return;
     }
-    try {
+    // Load QR scanner after stream is acquired — safe to await here
+    if ('BarcodeDetector' in window) {
       detector = new BarcodeDetector({formats: ['qr_code']});
-      stream = await navigator.mediaDevices.getUserMedia({video: {facingMode: 'environment'}});
-      video.srcObject = stream;
-      video.style.display = 'block';
-      await video.play();
-      startBtn.textContent = 'Stop Camera Scan';
-      statusEl.textContent = 'Point the camera at a ticket QR code.';
-      timer = setInterval(tick, 600);
-    } catch (e) {
-      statusEl.textContent = 'Unable to start camera scan. Use manual search.';
-      stopScan();
+    } else {
+      statusEl.textContent = 'Loading QR scanner…';
+      const loaded = await loadJsQR();
+      if (!loaded) {
+        stream.getTracks().forEach(t => t.stop()); stream = null;
+        statusEl.textContent = 'QR scanning is not available on this browser. Use manual search.';
+        return;
+      }
     }
+    video.srcObject = stream;
+    try {
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Camera timed out.')), 8000);
+        const go = () => { clearTimeout(timeout); video.play().then(resolve).catch(reject); };
+        if (video.readyState >= 1) { go(); } else { video.onloadedmetadata = go; }
+      });
+    } catch(e) {
+      stream.getTracks().forEach(t => t.stop()); stream = null;
+      statusEl.textContent = e.message || 'Camera failed to start. Try again.';
+      return;
+    }
+    video.style.display = 'block';
+    startBtn.textContent = 'Stop Camera Scan';
+    statusEl.textContent = 'Point the camera at a ticket QR code.';
+    timer = setInterval(tick, 600);
   });
 })();
 </script>
