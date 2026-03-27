@@ -330,60 +330,62 @@
       setNote('Camera access is not supported on this browser. Use photo upload or manual lookup.');
       return;
     }
-    // Request camera FIRST — any await before getUserMedia silently breaks iOS Safari's user gesture chain
-    setNote('Requesting camera access…');
+    // --- DIAGNOSTIC MODE: each step updates the note so we can see exactly where iOS fails ---
+    setNote('[1] Requesting camera…');
     try {
       try {
         stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}, audio:false});
       } catch(e) {
+        setNote('[1b] Retrying without facing mode…');
         stream = await navigator.mediaDevices.getUserMedia({video:true, audio:false});
       }
     } catch(e) {
-      setNote(e.message || 'Camera permission was denied or unavailable. Use photo upload or manual lookup.');
+      setNote('[FAIL 1] ' + (e.name||'') + ': ' + (e.message||'Permission denied or no camera.'));
       return;
     }
-    // Attach stream to video IMMEDIATELY — iOS releases orphaned streams within ~2 seconds
+    setNote('[2] Stream obtained — attaching to video…');
     video.srcObject = stream;
-    video.muted = true; // Set programmatically — iOS ignores the HTML attribute in some contexts
-    // Fire play() IMMEDIATELY — iOS autoplay window closes ~1 second after user gesture
-    // Do NOT await anything between getUserMedia and play()
+    video.muted = true;
+    setNote('[3] Calling play()…');
     const playPromise = video.play();
-    // Attach rejection handler SYNCHRONOUSLY — before any await — so it fires right away on failure.
-    // Do NOT stop the stream on rejection; retry on canplay/loadedmetadata instead.
-    // If no frames ever appear the 8 s timeout below is the only kill switch.
     if (playPromise && typeof playPromise.catch === 'function') {
-      playPromise.catch(() => {
-        const retryPlay = () => video.play().catch(() => {});
+      playPromise.catch((e) => {
+        setNote('[3] play() rejected: ' + (e.name||'') + ' — retrying on canplay/loadedmetadata…');
+        const retryPlay = () => video.play().catch((e2) => setNote('[3] retry failed: ' + (e2.name||e2.message||'')));
         video.addEventListener('canplay',        retryPlay, {once: true});
         video.addEventListener('loadedmetadata', retryPlay, {once: true});
       });
     }
-    // Set up QR detector — jsQR is pre-loaded by WordPress so loadJsQR() resolves instantly (no CDN wait)
     if ('BarcodeDetector' in window) {
+      setNote('[4] Using native BarcodeDetector…');
       detector = new BarcodeDetector({formats:['qr_code']});
     } else {
-      setNote('Loading QR scanner…');
+      setNote('[4] Loading jsQR… (pre=' + (typeof jsQR !== 'undefined') + ')');
       const loaded = await loadJsQR();
       if (!loaded) {
         stream.getTracks().forEach(t => t.stop()); stream = null;
         video.srcObject = null;
-        setNote('QR scanning is not available on this browser. Use photo upload or manual lookup.');
+        setNote('[FAIL 4] jsQR unavailable. Use photo upload or manual lookup.');
         return;
       }
+      setNote('[4] jsQR ready.');
     }
-    // Wait for first real frame — 'playing' event with videoWidth polling as fallback
+    setNote('[5] Waiting for first frame… (readyState=' + video.readyState + ' w=' + video.videoWidth + ')');
     try {
       await new Promise((resolve, reject) => {
         let poll;
-        const timeout = setTimeout(() => { clearInterval(poll); reject(new Error('Camera timed out. Try stopping and restarting.')); }, 8000);
-        const done = () => { clearTimeout(timeout); clearInterval(poll); resolve(); };
-        poll = setInterval(() => { if (video.videoWidth > 0 && video.readyState >= 2) done(); }, 200);
-        video.addEventListener('playing', done, {once: true});
+        const timeout = setTimeout(() => {
+          clearInterval(poll);
+          reject(new Error('[FAIL 5] Timed out. readyState=' + video.readyState + ' w=' + video.videoWidth + ' paused=' + video.paused));
+        }, 8000);
+        const done = (src) => { clearTimeout(timeout); clearInterval(poll); setNote('[5] Frame via ' + src); resolve(); };
+        poll = setInterval(() => { if (video.videoWidth > 0 && video.readyState >= 2) done('poll'); }, 200);
+        video.addEventListener('playing', () => done('playing event'), {once: true});
       });
     } catch(e) {
       stream.getTracks().forEach(t => t.stop()); stream = null;
       video.srcObject = null;
-      setNote(e.message || 'Camera failed to start. Try again.');
+      setNote(e.message || 'Camera failed to start.');
       return;
     }
     updateTorchVisibility(); idle(); resumeScanning();
