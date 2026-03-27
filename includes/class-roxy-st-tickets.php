@@ -78,7 +78,7 @@ class Tickets {
 
     // Pre-load jsQR on both scanner pages so it is ready before any user gesture fires
     if ($is_door_mode || $is_door_hook || $is_checkin || $is_checkin_hook) {
-      wp_enqueue_script('jsqr', 'https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js', [], '1.4.0', true);
+      wp_enqueue_script('jsqr', 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js', [], '1.4.0', true);
     }
 
     if (!$is_door_mode && !$is_door_hook) {
@@ -779,7 +779,7 @@ class Tickets {
     if (typeof jsQR !== 'undefined') { jsQRLib = jsQR; return Promise.resolve(true); }
     return new Promise((resolve) => {
       const script = document.createElement('script');
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js';
+      script.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';
       script.onload = () => { jsQRLib = window.jsQR || null; resolve(!!jsQRLib); };
       script.onerror = () => resolve(false);
       document.head.appendChild(script);

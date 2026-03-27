@@ -279,7 +279,7 @@
     if (typeof jsQR !== 'undefined') { jsQRLib = jsQR; return true; }
     return new Promise((resolve) => {
       const script = document.createElement('script');
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js';
+      script.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';
       script.onload = () => { jsQRLib = window.jsQR || null; resolve(!!jsQRLib); };
       script.onerror = () => resolve(false);
       document.head.appendChild(script);
