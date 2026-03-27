@@ -144,7 +144,7 @@ class Frontend {
       echo '<div>';
       echo '<div style="font-weight:700;font-size:18px;margin-bottom:4px"><a href="' . esc_url($permalink) . '" style="text-decoration:none;color:inherit">' . esc_html($title) . '</a></div>';
       if ($date_label) echo '<div style="opacity:.8;margin-bottom:8px">' . esc_html($date_label) . '</div>';
-      $remaining = Capacity::remaining_seats_for_showing($sid);
+      $remaining = ($profile !== 'free_event') ? Capacity::remaining_seats_for_showing($sid) : null;
       if (is_int($remaining) && $remaining > 0 && $remaining <= 50) {
         echo '<div style="opacity:.9;margin-bottom:10px;font-weight:600">Only ' . esc_html($remaining) . ' seats remaining</div>';
       }
@@ -167,6 +167,13 @@ class Frontend {
   }
 
   private static function render_ticket_form(int $showing_id, string $profile, ?int $remaining_seats = null): string {
+    if ($profile === 'free_event') {
+      return '<div class="roxy-st-free-admission" style="display:flex;align-items:center;gap:10px;padding:14px 16px;border-radius:12px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3)">'
+        . '<span style="font-size:20px">🎟️</span>'
+        . '<span><strong>Free Admission</strong> — No ticket or reservation required.</span>'
+        . '</div>';
+    }
+
     $action = esc_url(admin_url('admin-post.php'));
     $nonce = wp_create_nonce('roxy_st_add');
 
@@ -539,7 +546,7 @@ class Frontend {
       $hero .= '<div class="roxy-st-single-low">Only ' . esc_html($remaining) . ' seats remaining</div>';
     }
     $hero .= '<div id="roxy-showing-tickets" class="roxy-st-single-hero-tickets">';
-    $hero .= '<h2>Tickets</h2>';
+    $hero .= '<h2>' . ($profile === 'free_event' ? 'Admission' : 'Tickets') . '</h2>';
     $hero .= self::render_ticket_form($showing_id, $profile, $remaining);
     $hero .= '</div>';
     $hero .= '</div></div>';

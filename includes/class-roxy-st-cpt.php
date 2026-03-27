@@ -119,15 +119,21 @@ class CPT {
     $profiles = [
       'movie_evening' => sprintf('Movie — Evening (General $%s / Discount $%s)', wc_format_localized_price($general_price), wc_format_localized_price($discount_price)),
       'movie_matinee' => sprintf('Movie — Matinee (Everyone $%s)', wc_format_localized_price($matinee_price)),
-      'live_event' => 'Live Event (Tiered)',
+      'live_event'    => 'Live Event (Tiered)',
+      'free_event'    => 'Free Event (No Tickets)',
     ];
     foreach ($profiles as $k => $label) {
       echo '<option value="' . esc_attr($k) . '" ' . selected($profile, $k, false) . '>' . esc_html($label) . '</option>';
     }
     echo '</select>';
 
-    echo '<div class="roxy-help"><strong>Note:</strong> Ticket products are auto-created/updated when you save this showing. Global defaults can be edited under <a href="' . esc_url(admin_url('edit.php?post_type=' . self::POST_TYPE . '&page=roxy-st-settings')) . '">Roxy Showings → Settings</a>.</div>';
+    // Notes — one shown at a time based on profile; initial display set by PHP to avoid flash
+    echo '<div class="roxy-help" id="roxy-ticket-products-note" style="display:' . ($profile === 'free_event' ? 'none' : '') . '"><strong>Note:</strong> Ticket products are auto-created/updated when you save this showing. Global defaults can be edited under <a href="' . esc_url(admin_url('edit.php?post_type=' . self::POST_TYPE . '&page=roxy-st-settings')) . '">Roxy Showings → Settings</a>.</div>';
+    echo '<div class="roxy-help" id="roxy-free-event-note" style="display:' . ($profile === 'free_event' ? '' : 'none') . '"><strong>Free Event:</strong> No ticket products will be created. This showing appears in the public listing with &ldquo;Free Admission&rdquo; shown instead of a ticket form. Any previously created ticket products for this showing will be trashed on save.</div>';
+    echo '<script>document.addEventListener("DOMContentLoaded",function(){var sel=document.getElementById("roxy_pricing_profile");var live=document.getElementById("roxy-live-tier-fields");var tNote=document.getElementById("roxy-ticket-products-note");var fNote=document.getElementById("roxy-free-event-note");if(!sel)return;function upd(){var v=sel.value;if(live)live.style.display=(v==="live_event")?"contents":"none";if(tNote)tNote.style.display=(v==="free_event")?"none":"";if(fNote)fNote.style.display=(v==="free_event")?"":"none";}sel.addEventListener("change",upd);upd();});</script>';
 
+    // Live tier fields — wrapped so JS can show/hide as a group; display:contents keeps them in the parent grid
+    echo '<div id="roxy-live-tier-fields" style="display:' . ($profile === 'live_event' ? 'contents' : 'none') . '">';
     echo '<label><strong>Live Tier 1 Label</strong></label>';
     echo '<input name="roxy_live_label_1" type="text" value="' . esc_attr($live_label_1) . '">';
 
@@ -151,6 +157,7 @@ class CPT {
 
     echo '<label><strong>Live Tier 2 Price Change At</strong></label>';
     echo '<input name="roxy_live_change_at_2" type="datetime-local" value="' . esc_attr((string) $live_change_at_2) . '">';
+    echo '</div>'; // #roxy-live-tier-fields
 
     echo '<label><strong>Trailer / Media URL</strong></label>';
     echo '<input name="roxy_trailer_url" type="url" placeholder="https://www.youtube.com/watch?v=..." value="' . esc_attr((string) $trailer_url) . '">';
@@ -546,7 +553,8 @@ class CPT {
     $profiles = [
       'movie_evening' => 'Standard',
       'movie_matinee' => 'Matinee',
-      'live_event' => 'Live Event',
+      'live_event'    => 'Live Event',
+      'free_event'    => 'Free Event',
     ];
 
     $html = '<tr>';
@@ -580,7 +588,7 @@ class CPT {
       if (!strtotime($start)) {
         continue;
       }
-      if (!in_array($profile, ['movie_evening', 'movie_matinee', 'live_event'], true)) {
+      if (!in_array($profile, ['movie_evening', 'movie_matinee', 'live_event', 'free_event'], true)) {
         $profile = $fallback_profile;
       }
       $rows[] = [

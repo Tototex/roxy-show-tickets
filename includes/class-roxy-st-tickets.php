@@ -279,6 +279,7 @@ class Tickets {
     $out = [];
     foreach ($posts as $post) {
       $showing_id = (int) $post->ID;
+      if (get_post_meta($showing_id, '_roxy_pricing_profile', true) === 'free_event') continue;
       $start = (string) get_post_meta($showing_id, '_roxy_start', true);
       $label = get_the_title($showing_id);
       if ($start !== '') {
@@ -318,6 +319,7 @@ class Tickets {
 
     foreach ($posts as $post) {
       $showing_id = (int) $post->ID;
+      if (get_post_meta($showing_id, '_roxy_pricing_profile', true) === 'free_event') continue;
       $start_raw = (string) get_post_meta($showing_id, '_roxy_start', true);
       if ($start_raw === '') {
         continue;
