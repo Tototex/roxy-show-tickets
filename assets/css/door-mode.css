@@ -107,3 +107,18 @@ body.roxy-door-camera-active .roxy-door-camera-note{
   background:rgba(0,0,0,.55);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);
   color:#e5e7eb;text-align:center;padding:10px 16px;margin:0;border-radius:0
 }
+
+/* ── Offline banner ─────────────────────────────────────────────────── */
+#roxy-door-offline-banner{
+  position:fixed;top:0;left:0;right:0;z-index:10000;
+  background:#b91c1c;color:#fff;font-weight:600;
+  text-align:center;padding:9px 16px;letter-spacing:.01em
+}
+#roxy-door-offline-banner[hidden]{display:none}
+
+/* ── Already-used time context ─────────────────────────────────────── */
+.roxy-door-time-ago{
+  display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;
+  font-size:11px;font-weight:600;letter-spacing:.03em;vertical-align:middle;
+  background:rgba(255,255,255,.12);color:#cbd5e1
+}

@@ -18,13 +18,48 @@
   if (!video || !startBtn || !resultEl || !modal) return;
 
   let stream = null, detector = null, timer = null, busy = false, scanning = false, torchOn = false, audioCtx = null;
-  let jsQRLib = null, nfcReader = null;
+  let jsQRLib = null, nfcReader = null, wakeLock = null;
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d', {willReadFrequently:true});
 
   function setNote(msg){ if (note) note.textContent = msg; }
   function setOverlay(msg){ if (overlay) overlay.textContent = msg; }
   function escapeHtml(s){ return String(s || '').replace(/[&<>\"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
+  // MySQL datetime (2024-03-15 14:30:00) → human-readable, with Safari-safe ISO parsing
+  function formatDateTime(dateStr){
+    if (!dateStr) return '';
+    try { const d = new Date(String(dateStr).replace(' ','T')); return isNaN(d.getTime()) ? String(dateStr) : d.toLocaleString([],{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}); }
+    catch(e){ return String(dateStr); }
+  }
+  function timeAgo(dateStr){
+    if (!dateStr) return '';
+    try {
+      const diffMs = Date.now() - new Date(String(dateStr).replace(' ','T')).getTime();
+      if (isNaN(diffMs)) return '';
+      const s = Math.floor(diffMs/1000), m = Math.floor(s/60), h = Math.floor(m/60), d = Math.floor(h/24);
+      if (s < 90) return 'just now';
+      if (m < 60) return m + ' min ago';
+      if (h < 24) return h + ' hr ago';
+      if (d === 1) return 'yesterday';
+      return d + ' days ago';
+    } catch(e){ return ''; }
+  }
+  // Screen Wake Lock — keeps display on while camera is active
+  async function acquireWakeLock(){
+    if (!('wakeLock' in navigator)) return;
+    try { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } catch(e){ wakeLock = null; }
+  }
+  function releaseWakeLock(){ if (wakeLock){ wakeLock.release(); wakeLock = null; } }
+  // Re-acquire if the page becomes visible again while camera is still running (lock releases on hide)
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && stream) acquireWakeLock(); });
+  // Offline banner
+  const offlineBanner = document.createElement('div');
+  offlineBanner.id = 'roxy-door-offline-banner';
+  offlineBanner.textContent = '⚠ No connection — validation paused';
+  offlineBanner.hidden = !navigator.onLine;  // show immediately if already offline
+  document.body.appendChild(offlineBanner);
+  window.addEventListener('offline', () => { offlineBanner.hidden = false; });
+  window.addEventListener('online',  () => { offlineBanner.hidden = true; });
   function showModal(){ modal.classList.add('is-open'); modal.setAttribute('aria-hidden','false'); document.body.classList.add('roxy-door-modal-open'); }
   function currentLockShowingId(){ return showingLock ? parseInt(showingLock.value || '0', 10) || 0 : 0; }
   function currentLockShowingLabel(){ return showingLock && showingLock.selectedIndex >= 0 ? (showingLock.options[showingLock.selectedIndex].text || '') : ''; }
@@ -108,7 +143,7 @@
     }
     const status = escapeHtml(payload.status || 'valid');
     const kicker = status === 'valid' ? 'Ready to Admit' : (status === 'used' ? 'Already Used' : 'Review');
-    return `<div class="roxy-door-state roxy-door-state-${status}"><div class="roxy-door-kicker">${kicker}</div><div class="roxy-door-title" id="roxy-door-modal-title">${escapeHtml(payload.headline || 'Ticket')}</div><p>${escapeHtml(payload.subline || '')}</p><dl class="roxy-door-details"><div><dt>Guest</dt><dd>${escapeHtml(payload.customer_name || 'Unknown')}</dd></div><div><dt>Event</dt><dd>${escapeHtml(payload.showing_title || '')}</dd></div><div><dt>Ticket</dt><dd>${escapeHtml(payload.ticket_label || '')}</dd></div><div><dt>Order</dt><dd>#${escapeHtml(payload.order_number || '')}</dd></div></dl>${payload.customer_email ? `<div class="roxy-door-meta"><strong>Email:</strong> ${escapeHtml(payload.customer_email)}</div>`:''}${payload.checked_in_at ? `<div class="roxy-door-meta"><strong>Checked in:</strong> ${escapeHtml(payload.checked_in_at)}</div>`:''}${payload.token ? `<div class="roxy-door-token">${escapeHtml(payload.token)}</div>`:''}<div class="roxy-door-result-actions">${payload.can_check_in ? `<button type="button" class="button button-primary roxy-door-admit" data-ticket-id="${escapeHtml(String(payload.ticket_id||''))}">Admit / Check In</button>` : ''}${payload.can_undo ? `<button type="button" class="button roxy-door-undo" data-ticket-id="${escapeHtml(String(payload.ticket_id||''))}" data-undo="1">Undo Check-In</button>` : ''}<button type="button" class="button roxy-door-rescan">Rescan</button><a href="${cfg.manualPage || '#'}&s=${encodeURIComponent(payload.token || '')}" class="button">Manual Check-In</a></div></div>`;
+    return `<div class="roxy-door-state roxy-door-state-${status}"><div class="roxy-door-kicker">${kicker}</div><div class="roxy-door-title" id="roxy-door-modal-title">${escapeHtml(payload.headline || 'Ticket')}</div><p>${escapeHtml(payload.subline || '')}</p><dl class="roxy-door-details"><div><dt>Guest</dt><dd>${escapeHtml(payload.customer_name || 'Unknown')}</dd></div><div><dt>Event</dt><dd>${escapeHtml(payload.showing_title || '')}</dd></div><div><dt>Ticket</dt><dd>${escapeHtml(payload.ticket_label || '')}</dd></div><div><dt>Order</dt><dd>#${escapeHtml(payload.order_number || '')}</dd></div></dl>${payload.customer_email ? `<div class="roxy-door-meta"><strong>Email:</strong> ${escapeHtml(payload.customer_email)}</div>`:''}${payload.checked_in_at ? `<div class="roxy-door-meta"><strong>Checked in:</strong> ${escapeHtml(formatDateTime(payload.checked_in_at))} <span class="roxy-door-time-ago">${escapeHtml(timeAgo(payload.checked_in_at))}</span></div>`:''}${payload.token ? `<div class="roxy-door-token">${escapeHtml(payload.token)}</div>`:''}<div class="roxy-door-result-actions">${payload.can_check_in ? `<button type="button" class="button button-primary roxy-door-admit" data-ticket-id="${escapeHtml(String(payload.ticket_id||''))}">Admit / Check In</button>` : ''}${payload.can_undo ? `<button type="button" class="button roxy-door-undo" data-ticket-id="${escapeHtml(String(payload.ticket_id||''))}" data-undo="1">Undo Check-In</button>` : ''}<button type="button" class="button roxy-door-rescan">Rescan</button><a href="${cfg.manualPage || '#'}&s=${encodeURIComponent(payload.token || '')}" class="button">Manual Check-In</a></div></div>`;
   }
   function render(payload){ resultEl.innerHTML = stateHtml(payload); bindResultActions(); }
 
@@ -247,7 +282,7 @@
     finally { busy = false; }
   }
   function pauseScanning(){ scanning = false; if (timer) { clearInterval(timer); timer = null; } }
-  function stopCamera(){ pauseScanning(); if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } video.srcObject = null; torchOn = false; updateTorchVisibility(); setOverlay('Camera stopped'); setNote('Camera stopped.'); document.body.classList.remove('roxy-door-camera-active'); if (startBtn) startBtn.hidden = false; if (stopBtn) stopBtn.hidden = true; }
+  function stopCamera(){ pauseScanning(); if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } video.srcObject = null; torchOn = false; updateTorchVisibility(); setOverlay('Camera stopped'); setNote('Camera stopped.'); releaseWakeLock(); document.body.classList.remove('roxy-door-camera-active'); if (startBtn) startBtn.hidden = false; if (stopBtn) stopBtn.hidden = true; }
   let scanCount = 0;
   function resumeScanning(){ if (!stream || (!detector && !jsQRLib)) return; if (scanning) return; scanning = true; scanCount = 0; setOverlay('Present ticket QR code'); setNote('Aim camera at the QR code.'); timer = setInterval(scanFrame, 650); }
   async function scanFrame(){
@@ -391,6 +426,7 @@
     }
     updateTorchVisibility(); idle(); resumeScanning();
     startNfcIfAvailable();
+    acquireWakeLock();
     document.body.classList.add('roxy-door-camera-active');
     if (startBtn) startBtn.hidden = true;
     if (stopBtn) stopBtn.hidden = false;
