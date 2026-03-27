@@ -553,7 +553,7 @@ class Tickets {
     echo '<h2>Scan Ticket</h2>';
     echo '<div class="roxy-door-camera-actions">';
     echo '<button type="button" class="button button-primary" id="roxy-door-start">Start Camera</button>';
-    echo '<button type="button" class="button" id="roxy-door-stop">Stop</button>';
+    echo '<button type="button" class="button" id="roxy-door-stop" hidden>Stop</button>';
     echo '<button type="button" class="button" id="roxy-door-torch" hidden aria-pressed="false">🔦 Light</button>';
     echo '</div>';
     echo '</div>';
@@ -573,11 +573,6 @@ class Tickets {
     echo '</select></label>';
     echo '</div>';
     echo '<div class="roxy-door-attendance-card" id="roxy-door-attendance"><div class="roxy-door-attendance-empty">Select an event lock to show live attendance here.</div></div>';
-    echo '<div class="roxy-door-fallbacks">';
-    echo '<button type="button" class="button" id="roxy-door-nfc" hidden aria-pressed="false">Tap NFC</button>';
-    echo '<label class="button roxy-door-file-label" for="roxy-door-file">📷 Scan Photo</label>';
-    echo '<input type="file" id="roxy-door-file" accept="image/*" class="roxy-door-file-input" aria-label="Scan ticket from photo">';
-    echo '</div>';
     echo '</section>';
 
     echo '<aside class="roxy-door-recent-card">';

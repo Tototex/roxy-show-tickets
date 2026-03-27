@@ -247,7 +247,7 @@
     finally { busy = false; }
   }
   function pauseScanning(){ scanning = false; if (timer) { clearInterval(timer); timer = null; } }
-  function stopCamera(){ pauseScanning(); if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } video.srcObject = null; torchOn = false; updateTorchVisibility(); setOverlay('Camera stopped'); setNote('Camera stopped.'); }
+  function stopCamera(){ pauseScanning(); if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } video.srcObject = null; torchOn = false; updateTorchVisibility(); setOverlay('Camera stopped'); setNote('Camera stopped.'); document.body.classList.remove('roxy-door-camera-active'); if (startBtn) startBtn.hidden = false; if (stopBtn) stopBtn.hidden = true; }
   let scanCount = 0;
   function resumeScanning(){ if (!stream || (!detector && !jsQRLib)) return; if (scanning) return; scanning = true; scanCount = 0; setOverlay('Present ticket QR code'); setNote('Aim camera at the QR code.'); timer = setInterval(scanFrame, 650); }
   async function scanFrame(){
@@ -327,68 +327,61 @@
       return;
     }
     if (!('mediaDevices' in navigator) || !navigator.mediaDevices.getUserMedia) {
-      setNote('Camera access is not supported on this browser. Use photo upload or manual lookup.');
+      setNote('Camera access is not supported on this browser. Use manual lookup or Roxy Check-In.');
       return;
     }
-    // --- DIAGNOSTIC MODE: each step updates the note so we can see exactly where iOS fails ---
-    setNote('[1] Requesting camera…');
+    setNote('Requesting camera access…');
     try {
       try {
         stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}, audio:false});
       } catch(e) {
-        setNote('[1b] Retrying without facing mode…');
         stream = await navigator.mediaDevices.getUserMedia({video:true, audio:false});
       }
     } catch(e) {
-      setNote('[FAIL 1] ' + (e.name||'') + ': ' + (e.message||'Permission denied or no camera.'));
+      setNote((e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError')
+        ? 'Camera access denied. Please allow camera permissions and try again.'
+        : 'Could not access camera: ' + (e.message || 'Permission denied or no camera.'));
       return;
     }
-    setNote('[2] Stream obtained — attaching to video…');
     video.srcObject = stream;
     video.muted = true;
     // Wait for loadedmetadata BEFORE calling play() — iOS WebKit runs an internal load()
     // when srcObject is set; calling play() before it finishes throws AbortError.
     // Muted + playsinline does NOT require a user gesture so this await is safe.
-    setNote('[2] Waiting for video ready…');
     if (video.readyState < 1) {
       await new Promise(resolve => {
         video.addEventListener('loadedmetadata', resolve, {once: true});
-        setTimeout(resolve, 3000); // safety valve if event never fires
+        setTimeout(resolve, 3000);
       });
     }
-    setNote('[3] Calling play() (readyState=' + video.readyState + ')…');
     try {
       await video.play();
-      setNote('[3] play() succeeded.');
     } catch(e) {
-      setNote('[3] play() failed: ' + (e.name||'') + ' — ' + (e.message||'') + ' (continuing…)');
-      // Don't stop stream — polling may still detect frames
+      // Don't stop stream — frame polling may still detect frames (common on some browsers)
     }
     if ('BarcodeDetector' in window) {
-      setNote('[4] Using native BarcodeDetector…');
       detector = new BarcodeDetector({formats:['qr_code']});
     } else {
-      setNote('[4] Loading jsQR… (pre=' + (typeof jsQR !== 'undefined') + ')');
+      setNote('Loading QR scanner…');
       const loaded = await loadJsQR();
       if (!loaded) {
         stream.getTracks().forEach(t => t.stop()); stream = null;
         video.srcObject = null;
-        setNote('[FAIL 4] jsQR unavailable. Use photo upload or manual lookup.');
+        setNote('QR scanner unavailable. Use manual lookup or Roxy Check-In.');
         return;
       }
-      setNote('[4] jsQR ready.');
     }
-    setNote('[5] Waiting for first frame… (readyState=' + video.readyState + ' w=' + video.videoWidth + ')');
+    setNote('Starting camera…');
     try {
       await new Promise((resolve, reject) => {
         let poll;
         const timeout = setTimeout(() => {
           clearInterval(poll);
-          reject(new Error('[FAIL 5] Timed out. readyState=' + video.readyState + ' w=' + video.videoWidth + ' paused=' + video.paused));
+          reject(new Error('Camera timed out. Try stopping and restarting, or use manual lookup.'));
         }, 8000);
-        const done = (src) => { clearTimeout(timeout); clearInterval(poll); setNote('[5] Frame via ' + src); resolve(); };
-        poll = setInterval(() => { if (video.videoWidth > 0 && video.readyState >= 2) done('poll'); }, 200);
-        video.addEventListener('playing', () => done('playing event'), {once: true});
+        const done = () => { clearTimeout(timeout); clearInterval(poll); resolve(); };
+        poll = setInterval(() => { if (video.videoWidth > 0 && video.readyState >= 2) done(); }, 200);
+        video.addEventListener('playing', done, {once: true});
       });
     } catch(e) {
       stream.getTracks().forEach(t => t.stop()); stream = null;
@@ -398,6 +391,9 @@
     }
     updateTorchVisibility(); idle(); resumeScanning();
     startNfcIfAvailable();
+    document.body.classList.add('roxy-door-camera-active');
+    if (startBtn) startBtn.hidden = true;
+    if (stopBtn) stopBtn.hidden = false;
   }
   startBtn.addEventListener('click', startCamera);
   if (stopBtn) stopBtn.addEventListener('click', stopCamera);
