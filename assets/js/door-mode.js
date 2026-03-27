@@ -56,7 +56,7 @@
   const offlineBanner = document.createElement('div');
   offlineBanner.id = 'roxy-door-offline-banner';
   offlineBanner.textContent = '⚠ No connection — validation paused';
-  offlineBanner.hidden = !navigator.onLine;  // show immediately if already offline
+  offlineBanner.hidden = true;  // rely on events only — navigator.onLine has false-positive issues
   document.body.appendChild(offlineBanner);
   window.addEventListener('offline', () => { offlineBanner.hidden = false; });
   window.addEventListener('online',  () => { offlineBanner.hidden = true; });
