@@ -346,15 +346,23 @@
     setNote('[2] Stream obtained — attaching to video…');
     video.srcObject = stream;
     video.muted = true;
-    setNote('[3] Calling play()…');
-    const playPromise = video.play();
-    if (playPromise && typeof playPromise.catch === 'function') {
-      playPromise.catch((e) => {
-        setNote('[3] play() rejected: ' + (e.name||'') + ' — retrying on canplay/loadedmetadata…');
-        const retryPlay = () => video.play().catch((e2) => setNote('[3] retry failed: ' + (e2.name||e2.message||'')));
-        video.addEventListener('canplay',        retryPlay, {once: true});
-        video.addEventListener('loadedmetadata', retryPlay, {once: true});
+    // Wait for loadedmetadata BEFORE calling play() — iOS WebKit runs an internal load()
+    // when srcObject is set; calling play() before it finishes throws AbortError.
+    // Muted + playsinline does NOT require a user gesture so this await is safe.
+    setNote('[2] Waiting for video ready…');
+    if (video.readyState < 1) {
+      await new Promise(resolve => {
+        video.addEventListener('loadedmetadata', resolve, {once: true});
+        setTimeout(resolve, 3000); // safety valve if event never fires
       });
+    }
+    setNote('[3] Calling play() (readyState=' + video.readyState + ')…');
+    try {
+      await video.play();
+      setNote('[3] play() succeeded.');
+    } catch(e) {
+      setNote('[3] play() failed: ' + (e.name||'') + ' — ' + (e.message||'') + ' (continuing…)');
+      // Don't stop stream — polling may still detect frames
     }
     if ('BarcodeDetector' in window) {
       setNote('[4] Using native BarcodeDetector…');
