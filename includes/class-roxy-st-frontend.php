@@ -63,6 +63,7 @@ class Frontend {
       'show_all_button' => true,
       'all_button_url' => (string) $atts['tickets_url'],
       'all_button_label' => (string) $atts['button_label'],
+      'pin_next_live' => true,
     ]);
   }
 
@@ -114,7 +115,53 @@ class Frontend {
     </style>';
     echo '<div class="roxy-st-grid" style="display:grid;gap:16px">';
 
-    if (!$q->have_posts()) {
+    // Collect posts so we can optionally inject a pinned live event
+    $posts = $q->posts;
+
+    // Pin the next upcoming live event into the last slot when it isn't already in the set
+    if (!empty($args['pin_next_live'])) {
+      $has_live = false;
+      foreach ($posts as $p) {
+        if (get_post_meta($p->ID, '_roxy_pricing_profile', true) === 'live_event') {
+          $has_live = true;
+          break;
+        }
+      }
+      if (!$has_live) {
+        $live_posts = get_posts([
+          'post_type'      => CPT::POST_TYPE,
+          'posts_per_page' => 1,
+          'post_status'    => 'publish',
+          'meta_key'       => '_roxy_start',
+          'orderby'        => 'meta_value',
+          'order'          => 'ASC',
+          'no_found_rows'  => true,
+          'meta_query'     => [
+            'relation' => 'AND',
+            ['key' => '_roxy_start',          'value' => date('Y-m-d\TH:i', $now), 'compare' => '>=',  'type' => 'CHAR'],
+            ['key' => '_roxy_pricing_profile', 'value' => 'live_event',             'compare' => '='],
+          ],
+        ]);
+        if (!empty($live_posts)) {
+          $pinned_id = (int) $live_posts[0]->ID;
+          $already_in = false;
+          foreach ($posts as $p) { if ((int) $p->ID === $pinned_id) { $already_in = true; break; } }
+          if (!$already_in) {
+            if (count($posts) >= $limit) { array_pop($posts); } // free up the last slot
+            $posts[] = $live_posts[0];
+            // Re-sort chronologically — live event naturally ends up last when it's far out
+            usort($posts, function($a, $b) {
+              return strcmp(
+                (string) get_post_meta($a->ID, '_roxy_start', true),
+                (string) get_post_meta($b->ID, '_roxy_start', true)
+              );
+            });
+          }
+        }
+      }
+    }
+
+    if (empty($posts)) {
       echo '<p>No upcoming showings found.</p>';
       if ($show_all_button && $all_button_url !== '') {
         echo '<div class="roxy-st-all-button-wrap"><a class="roxy-st-all-button" href="' . esc_url($all_button_url) . '">' . esc_html($all_button_label !== '' ? $all_button_label : 'View All Showings') . '</a></div>';
@@ -123,9 +170,10 @@ class Frontend {
       return (string) ob_get_clean();
     }
 
-    while ($q->have_posts()) {
-      $q->the_post();
-      $sid = get_the_ID();
+    global $post;
+    foreach ($posts as $post) {
+      setup_postdata($post);
+      $sid = $post->ID;
       $title = get_the_title();
       $start = get_post_meta($sid, '_roxy_start', true);
       $profile = get_post_meta($sid, '_roxy_pricing_profile', true) ?: 'movie_evening';
