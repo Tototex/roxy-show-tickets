@@ -49,7 +49,7 @@ class Frontend {
 
   public static function shortcode_showings_home($atts): string {
     $atts = shortcode_atts([
-      'limit' => 50,
+      'limit' => 6,
       'days' => 14,
       'show_images' => '1',
       'tickets_url' => home_url('/tickets/'),
