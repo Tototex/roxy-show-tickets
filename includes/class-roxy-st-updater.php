@@ -117,14 +117,29 @@ class Updater {
         }
 
         $action = isset($hook_extra['action']) ? (string) $hook_extra['action'] : '';
-        $type = isset($hook_extra['type']) ? (string) $hook_extra['type'] : '';
-        $plugins = isset($hook_extra['plugins']) && is_array($hook_extra['plugins']) ? $hook_extra['plugins'] : [];
+        $type   = isset($hook_extra['type'])   ? (string) $hook_extra['type']   : '';
 
-        if ($action !== 'update' || $type !== 'plugin') {
+        if ($type !== 'plugin') {
             return;
         }
 
-        if (!in_array(self::$config['plugin_file'], $plugins, true)) {
+        if ($action === 'update') {
+            // Single-plugin update sets hook_extra['plugin'] (singular string).
+            // Bulk update sets hook_extra['plugins'] (array). Check both.
+            $plugin_single = isset($hook_extra['plugin']) ? (string) $hook_extra['plugin'] : '';
+            $plugins_bulk  = isset($hook_extra['plugins']) && is_array($hook_extra['plugins'])
+                ? $hook_extra['plugins']
+                : [];
+            if ($plugin_single !== self::$config['plugin_file']
+                && !in_array(self::$config['plugin_file'], $plugins_bulk, true)) {
+                return;
+            }
+        } elseif ($action === 'install') {
+            // Manual ZIP upload via the admin uploader fires action=install.
+            // The stale update_plugins transient would otherwise trigger a
+            // spurious "Update failed: The plugin is at the latest version"
+            // notice on the next page load, so clear it here unconditionally.
+        } else {
             return;
         }
 
