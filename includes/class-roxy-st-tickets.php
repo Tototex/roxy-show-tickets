@@ -976,10 +976,20 @@ class Tickets {
   private static function extract_member_subscription_id(string $value): int {
     $value = trim($value);
     if ($value === '') return 0;
-    if (preg_match('/[?&]sub=(\d+)/i', $value, $m)) {
-      return absint($m[1]);
+
+    if (preg_match('/^\d+$/', $value)) {
+      return absint($value);
     }
-    if (preg_match('#(?:member-check/?|api\.thenewportroxy\.com/?)(?:\?.*?)?sub=(\d+)#i', $value, $m)) {
+
+    $query = wp_parse_url($value, PHP_URL_QUERY);
+    if (is_string($query) && $query !== '') {
+      parse_str($query, $params);
+      if (!empty($params['sub'])) {
+        return absint($params['sub']);
+      }
+    }
+
+    if (preg_match('/[?&]sub=(\d+)/i', $value, $m)) {
       return absint($m[1]);
     }
     return 0;
