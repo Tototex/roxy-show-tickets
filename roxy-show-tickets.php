@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Roxy Show Tickets (WooCommerce)
  * Description: Show-specific ticketing with per-showing hidden products (avoids cart collisions), capacity controls, and subscriber tickets per show (based on active subscriptions).
- * Version: 0.2.10.51
+ * Version: 0.2.10.52
  * Author: Newport Roxy (AI Team)
  * Update URI: https://github.com/Tototex/roxy-show-tickets
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('ROXY_ST_VER', '0.2.10.51');
+define('ROXY_ST_VER', '0.2.10.52');
 define('ROXY_ST_PATH', plugin_dir_path(__FILE__));
 define('ROXY_ST_URL', plugin_dir_url(__FILE__));
 
@@ -22,6 +22,7 @@ require_once ROXY_ST_PATH . 'includes/class-roxy-st-cpt.php';
 require_once ROXY_ST_PATH . 'includes/class-roxy-st-log.php';
 require_once ROXY_ST_PATH . 'includes/class-roxy-st-settings.php';
 require_once ROXY_ST_PATH . 'includes/class-roxy-st-sales.php';
+require_once ROXY_ST_PATH . 'includes/lib/psyon/qrcode.php';
 require_once ROXY_ST_PATH . 'includes/class-roxy-st-tickets.php';
 require_once ROXY_ST_PATH . 'includes/class-roxy-st-products.php';
 require_once ROXY_ST_PATH . 'includes/class-roxy-st-capacity.php';

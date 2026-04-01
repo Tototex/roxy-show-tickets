@@ -30,6 +30,8 @@ class Tickets {
     add_action('wp_ajax_roxy_st_door_validate', [__CLASS__, 'ajax_door_validate']);
     add_action('wp_ajax_roxy_st_door_checkin', [__CLASS__, 'ajax_door_checkin']);
     add_action('wp_ajax_roxy_st_door_stats', [__CLASS__, 'ajax_door_stats']);
+    add_action('wp_ajax_roxy_st_qr', [__CLASS__, 'ajax_qr']);
+    add_action('wp_ajax_nopriv_roxy_st_qr', [__CLASS__, 'ajax_qr']);
 
     add_action('woocommerce_thankyou', [__CLASS__, 'render_order_tickets'], 25, 1);
     add_action('woocommerce_view_order', [__CLASS__, 'render_order_tickets'], 25, 1);
@@ -1102,6 +1104,37 @@ class Tickets {
     wp_send_json_success(self::door_stats_payload($showing_id));
   }
 
+  public static function ajax_qr(): void {
+    if (!class_exists('\QRCode') || !function_exists('imagepng')) {
+      status_header(500);
+      wp_die('QR generation is unavailable on this server.');
+    }
+
+    $data = isset($_REQUEST['data']) ? wp_unslash((string) $_REQUEST['data']) : '';
+    $data = preg_replace('/[\x00-\x1F\x7F]/u', '', $data);
+    $data = trim(is_string($data) ? $data : '');
+    if ($data === '' || strlen($data) > 1000) {
+      status_header(400);
+      wp_die('Invalid QR payload.');
+    }
+
+    $size = isset($_REQUEST['size']) ? (int) $_REQUEST['size'] : 220;
+    $size = max(120, min(512, $size));
+
+    nocache_headers();
+    $generator = new \QRCode($data, [
+      'w' => $size,
+      'h' => $size,
+      'p' => 0,
+      'wq' => 2,
+      'md' => 1,
+      'bc' => 'FFFFFF',
+      'fc' => '000000',
+    ]);
+    $generator->output_image();
+    exit;
+  }
+
   public static function get_ticket_by_token(string $token): ?\WP_Post {
     $posts = get_posts([
       'post_type' => self::POST_TYPE,
@@ -1187,12 +1220,16 @@ class Tickets {
     return wp_generate_password(28, false, false);
   }
 
-  private static function qr_image_url(string $token): string {
-    return 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' . rawurlencode($token);
+  public static function qr_image_url(string $data, int $size = 220): string {
+    return add_query_arg([
+      'action' => 'roxy_st_qr',
+      'data' => $data,
+      'size' => max(120, min(512, $size)),
+    ], admin_url('admin-ajax.php'));
   }
 
   private static function state_for_order_status(string $status): string {
-    return in_array($status, ['processing', 'completed', 'on-hold'], true) ? 'valid' : self::invalid_state_for_order($status);
+    return in_array($status, ['refunded', 'cancelled', 'failed'], true) ? self::invalid_state_for_order($status) : 'valid';
   }
 
   private static function invalid_state_for_order(string $status): string {
